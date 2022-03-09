@@ -1,0 +1,63 @@
+name: test
+on:
+  - push
+  - workflow_dispatch
+jobs:
+  start-cluster:
+    name: Start buildx cluster
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.start-buildx-cluster.outputs.label }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Start EC2 runner
+        id: start-buildx-cluster
+        uses: rbuysse/sup@v2
+        with:
+          action: start
+          amd_ami_id: ${{ secrets.AMD_AMI_ID }}
+          amd_instance_type: t2.nano
+          arm_ami_id: ${{ secrets.ARM_AMI_ID }}
+          arm_instance_type: t4g.nano
+          gh_personal_access_token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          security_group_id: ${{ secrets.SECURITY_GROUP_ID }}
+          subnet: ${{ secrets.SUBNET }}
+
+      - name: Test output
+        run: echo ${{ steps.start-buildx-cluster.outputs.label }}
+
+  build-docker:
+    name: Build splinter-dev
+    needs: start-cluster
+    runs-on: ${{ needs.start-cluster.outputs.label }}
+    steps:
+      - name: sup
+        run: docker buildx ls
+
+  stop-cluster:
+    name: Stop buildx cluster
+    needs:
+      - start-cluster
+      - build-docker
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Destroy cluster
+        uses: rbuysse/sup@v2
+        with:
+          action: stop
+          label: ${{ needs.start-cluster.outputs.label }}
+
