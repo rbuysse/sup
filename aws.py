@@ -15,6 +15,7 @@ arm_ami = os.environ["INPUT_ARM_AMI_ID"]
 arm_instancetype = os.environ["INPUT_ARM_INSTANCE_TYPE"]
 github_pat = os.environ["INPUT_GH_PERSONAL_ACCESS_TOKEN"]
 region = os.environ["AWS_REGION"]
+repo = os.environ["GITHUB_REPOSITORY"]
 securitygroup = os.environ["INPUT_SECURITY_GROUP_ID"]
 subnet = os.environ["INPUT_SUBNET"]
 
@@ -69,7 +70,7 @@ def get_instances_from_tag(tag):
 def get_regtoken():
     try:
         headers = {'Authorization': "token {}".format(github_pat.strip())}
-        r = requests.post("https://api.github.com/repos/rbuysse/sup/actions/runners/registration-token", headers=headers)
+        r = requests.post(f"https://api.github.com/repos/{repo}/actions/runners/registration-token", headers=headers)
         return r.json()["token"]
     except:
         print("ERROR: Unable to get GHA self-hosted registration token")
@@ -99,7 +100,7 @@ def terminate_instances(tag):
 if action == "start":
     reg_token = get_regtoken()
     label = make_label()
-    print("Creating instances with tag %s " % label)
+    print(f"Creating instances with tag {label}")
     arm_userdata=""
     arminstance=create_instance(arm_ami, arm_instancetype, label, arm_userdata)
     arm_private_ip = arminstance['Instances'][0]['PrivateIpAddress']
@@ -107,8 +108,8 @@ if action == "start":
     print("Sleeping for 20s so %s will be ready" % arminstance['Instances'][0]['InstanceId'])
     time.sleep(20)
 
-    amd_userdata="""#!/bin/bash
-        echo "%s buildx" >> /etc/hosts
+    amd_userdata=f"""#!/bin/bash
+        echo "{arm_private_ip} buildx" >> /etc/hosts
         DOCKER_HOST=tcp://buildx:2375 docker buildx create --name cluster
         docker buildx create --name cluster --append
         docker buildx use cluster
@@ -116,12 +117,12 @@ if action == "start":
         mkdir /tmp/actions-runner && cd /tmp/actions-runner
         curl -o actions-runner-linux-x64-2.288.1.tar.gz -L https://github.com/actions/runner/releases/download/v2.288.1/actions-runner-linux-x64-2.288.1.tar.gz
         tar xzf ./actions-runner-linux-x64-2.288.1.tar.gz
-        RUNNER_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/rbuysse/sup --token %s --labels %s --ephemeral --unattended
+        RUNNER_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/{repo} --token {reg_token} --labels {label} --ephemeral --unattended
         RUNNER_ALLOW_RUNASROOT=1 ./run.sh
-    """ % (arm_private_ip, reg_token, label)
+    """
 
     amdinstance=create_instance(amd_ami, amd_instancetype, label, amd_userdata)
-    print("::set-output name=label::%s" % label)
+    print(f"::set-output name=label::{label}")
 
 if action == "stop":
     terminate_instances(os.environ["INPUT_LABEL"])
